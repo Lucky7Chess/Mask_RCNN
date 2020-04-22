@@ -72,7 +72,8 @@ class LanedetectConfig(Config):
 
     # Number of training steps per epoch
     STEPS_PER_EPOCH = 100
-
+    IMAGE_MIN_DIM = 80
+    IMAGE_MAX_DIM = 640
     # Skip detections with < 90% confidence
     DETECTION_MIN_CONFIDENCE = 0.9
 
@@ -98,7 +99,7 @@ class LanedetectDataset(utils.Dataset):
             for filename in files:
                 image_path = os.path.join(pathRaw, filename)
                 im = Image.open(image_path)
-                print(im.size)
+                #print(im.size)
                 self.add_image(
                     "lanedetect",
                     image_id=filename,  # use file name as a unique image id
@@ -118,14 +119,19 @@ class LanedetectDataset(utils.Dataset):
         image_info = self.image_info[image_id]
         if image_info["source"] != "lanedetect":
             return super(self.__class__, self).load_mask(image_id)
-
+        filename = image_info["path"]
         # Convert polygons to a bitmap mask of shape
         # [height, width, instance_count]
-        pathTo = pathLabels + "/" +  filename[:-4] + str("_bin.png")
+        pathTo = pathLabels + "/" + image_info["id"][:-4] + str("_bin.png")
+        image = skimage.io.imread(pathTo)
+        timage = np.logical_and(np.logical_and(np.logical_and(image[:,:,2] >=112,image[:,:,2] <=200), np.logical_and(image[:,:,0]>=60,image[:,:,0]<=135)), np.logical_and(image[:,:,1]>60, image[:,:,1]<=195))
 
+        timage2 =  np.logical_and(np.logical_and(np.logical_and(image[:,:,2] >132,image[:,:,2] <150), image[:,:,0]<=5), image[:,:,1]<=5)
+        mask = np.logical_or(timage, timage2)
+        mask = np.expand_dims(mask, axis=2)
         # Return mask, and array of class IDs of each instance. Since we have
         # one class ID only, we return an array of 1s
-        return mask.astype(np.bool), np.ones([mask.shape[-1]], dtype=np.int32)
+        return mask.astype(np.bool), np.ones(1, dtype=np.int32)
 
     def image_reference(self, image_id):
         """Return the path of the image."""
@@ -139,12 +145,12 @@ class LanedetectDataset(utils.Dataset):
 def train(model):
     """Train the model."""
     # Training dataset.
-    dataset_train = BalloonDataset()
+    dataset_train = LanedetectDataset()
     dataset_train.load_balloon(args.dataset, "train")
     dataset_train.prepare()
 
     # Validation dataset
-    dataset_val = BalloonDataset()
+    dataset_val = LanedetectDataset()
     dataset_val.load_balloon(args.dataset, "val")
     dataset_val.prepare()
 
@@ -168,7 +174,7 @@ def color_splash(image, mask):
     """
     # Make a grayscale copy of the image. The grayscale copy still
     # has 3 RGB channels, though.
-    gray = skimage.color.gray2rgb(skimage.color.rgb2gray(image)) * 255
+    gray = skimage.color.gray2rgb(skimage.color.rgb2gray(image)) * 0
     # Copy color pixels from the original color image where mask is set
     if mask.shape[-1] > 0:
         # We're treating all instances as one, so collapse the mask into one layer
@@ -277,7 +283,7 @@ if __name__ == '__main__':
     if args.command == "train":
         config = LanedetectConfig()
     else:
-        class InferenceConfig(BalloonConfig):
+        class InferenceConfig(LanedetectConfig):
             # Set batch size to 1 since we'll be running inference on
             # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
             GPU_COUNT = 1
